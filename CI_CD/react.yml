@@ -1,0 +1,83 @@
+build:
+  stage: build
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
+  script:
+    - >
+      DOCKER_BUILDKIT=1
+      docker build
+      -f Dockerfile
+      -t ${image_name}
+      --build-arg BUILD_STAGE=build:branch 
+      --build-arg NGINX_CONFIG=nginx.conf .
+    - docker push ${image_name}
+  tags:
+    - tag
+  only:
+    refs:
+      - 'branch'
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /all(\s.*)?/i
+
+push-cdn:
+  stage: deploy
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
+  script:
+    - docker rm -f name || true
+    - docker pull ${image_name}
+    - >
+      docker run -d
+      --restart=always
+      -p 8090:8080
+      --name react
+      ${image_name}
+
+    #push cdn
+    - docker cp name:/usr/share/nginx/html ./upload_cdn
+    - docker rm -f name-cdn || true
+    - >
+      docker run -t
+      -v $(pwd)/upload_cdn_stg:/upload_cdn
+      -v $(pwd)/upload-cdn-stg.sh:/upload_cdn.sh 
+      --name name-cdn
+      --add-host=cdn.vn:10.1.1.1
+      --entrypoint=/bin/sh 
+      minio/mc 
+      -c "bash /upload_cdn.sh"
+    #remove container
+    - docker rm -f name || true
+    - docker rm -f name-cdn || true
+
+  tags:
+    - tag
+  only:
+    refs:
+      - 'branch'
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /all(\s.*)?/i
+
+deploy-k8s:
+  stage: deploy
+  before_script:
+    - git submodule sync --recursive
+    - git submodule update --progress --init --force
+    - git config  --global user.email "${GIT_USER_EMAIL:-$GITLAB_USER_EMAIL}"
+    - git config  --global user.name "${GIT_USER_NAME:-$GITLAB_USER_NAME}"
+    - cd ${repo_helm}
+    - git pull --rebase "https://${USERNAME_GIT}:${PASSWORD_GIT}@${url_helmchart}" branch
+  script:
+    - echo "Cập nhật argocd react"
+    - cd charts/chart-react
+    - 'sed -i s"/tag: .*/tag: \"${image_id}\"/"g values.yaml'
+    - git status
+    - git add .
+    - git commit -am "Update to version ${image_id} comment ${CI_COMMIT_MESSAGE}"
+    - git push "https://${USERNAME_GIT}:${PASSWORD_GIT}@${url_helmchart#*@}" HEAD:branch
+  tags:
+    - tag
+  only:
+    refs:
+      - 'branch'
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /all(\s.*)?/i

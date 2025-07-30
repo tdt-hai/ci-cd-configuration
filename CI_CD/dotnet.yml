@@ -1,0 +1,50 @@
+build-image:
+  stage: build
+  variables:
+    Project_docker_path: "project/Dockerfile"
+    Project_publish: "project/project.csproj"
+    Folder_build: "./project"
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
+  script:
+    #build ở VM
+    - dotnet publish $Project_publish /p:PublishProfile=FolderProfile -o $Folder_build
+    #build và push ở docker
+    - >
+      DOCKER_BUILDKIT=1
+      docker build 
+      -t ${image_name}
+      -f $Project_docker_path
+      --build-arg FOLDER_BUILD=$Folder_build .
+    - docker push ${image_name}
+  tags:
+    - tag
+  only:
+    refs:
+    - branch
+    variables:
+        - $CI_COMMIT_MESSAGE =~ /(all).*/  
+
+deploy-k8s:
+  stage: deploy
+  before_script:
+    - git submodule sync --recursive
+    - git submodule update --progress --init --force
+    - git config  --global user.email "${GIT_USER_EMAIL:-$GITLAB_USER_EMAIL}"
+    - git config  --global user.name "${GIT_USER_NAME:-$GITLAB_USER_NAME}"
+    - cd ${repo_helm}
+    - git pull --rebase "https://${USERNAME_GIT}:${PASSWORD_GIT}@${url_helmchart}" branch
+  script:
+    - echo "Cập nhật argocd"
+    - 'sed -i s"/tag: .*/tag: \"${image_id}\"/"g values.yaml'
+    - git status
+    - git add . 
+    - git commit -am "Update to version ${image_id} comment ${CI_COMMIT_MESSAGE}"
+    - git push "https://${USERNAME_GIT}:${PASSWORD_GIT}@${url_helmchart#*@}" HEAD:branch
+  tags:
+  - tag
+  only:
+    refs:
+    - branch
+    variables:
+        - $CI_COMMIT_MESSAGE =~ /(all).*/  
