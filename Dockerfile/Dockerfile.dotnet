@@ -1,0 +1,12 @@
+FROM git.vn:6666/base-image-local/base/donet:8.0 AS base
+#COPY
+ARG FOLDER_BUILD=folder_publish
+EXPOSE 80
+ENV TZ=Asia/Ho_Chi_Minh
+COPY $FOLDER_BUILD /app
+#RUN
+WORKDIR /app
+RUN addgroup --system --gid 1000 dotnet \
+    && adduser --system --uid 1000 --ingroup dotnet --shell /bin/sh dotnet
+USER 1000
+ENTRYPOINT ["dotnet", "dotnet.dll"]

@@ -1,0 +1,30 @@
+# Stage 1: Base image
+FROM git.vn:6666/base-image-local/base/node:22-alpine as base_image
+
+# Base
+FROM base_image as deps
+WORKDIR /usr/cache/src/app/
+COPY package.json yarn.lock ./
+RUN --mount=type=cache,target=/var/cache/yarn --mount=type=cache,target=/var/cache/yarn/build yarn install --frozen-lockfile
+
+# Rebuild
+FROM base_image as builder
+ARG ENV_STAGE=env_stage
+WORKDIR /usr/src/app
+# Copy dependencies
+COPY --from=deps /usr/cache/src/app/node_modules ./node_modules
+COPY . .
+RUN yarn  build:$ENV_STAGE \
+    && yarn sri \
+    && rm -rf node_modules \
+    && yarn install --production --frozen-file
+
+#run
+FROM git.vn:6666/base-image-local/base/nginxinc/nginx-unprivileged:1.26
+COPY --from=builder /usr/src/app/out /usr/share/nginx/html
+#healthcheck
+COPY healthcheck.html /usr/share/nginx/html/healthcheck.html
+COPY /nginx/404.html /usr/share/nginx/html/404.html
+COPY /nginx/nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
