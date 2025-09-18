@@ -2,6 +2,7 @@ variables:
   GIT_DEPTH: "1"
   image_id: '$CI_PIPELINE_IID-$CI_COMMIT_REF_NAME'
   image_name: '$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_NAME:$image_id'
+  docker_config: "$CI_PROJECT_DIR/.docker" # Dùng dockerfile nội bộ
   #helm
   url_helmchart: git.vn/react/chart-react.git
   repo_helm: chart-react

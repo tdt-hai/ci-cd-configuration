@@ -1,0 +1,43 @@
+###############################---BUILD----#################################################
+build-k8s:
+  stage: build
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
+    - mkdir -p $docker_config
+  script:
+    - >
+      docker build 
+      -t ${image_name}
+      -f Dockerfile .
+    - docker push ${image_name}
+    # remove image
+    - docker rmi -f ${image_name} 
+  tags:
+    - build
+  only:
+    refs:
+    - branch
+    variables:
+        - $CI_COMMIT_MESSAGE =~ /(build|all).*/
+deploy-k8s:
+  stage: deploy
+  before_script:
+    - if [ -d "${repo_helm}" ]; then rm -r "${repo_helm}"; fi
+    - git config  --global user.email "${GIT_USER_EMAIL:-$GITLAB_USER_EMAIL}"
+    - git config  --global user.name "${GIT_USER_NAME:-$GITLAB_USER_NAME}"
+    - git clone -b branch "https://${USERNAME_GIT}:${PASSWORD_GIT}@${url_helmchart}" 
+  script:
+    - echo "Cập nhật argocd branch."
+    - cd ${repo_helm}
+    - 'sed -i s"/tag: .*/tag: \"${image_id}\"/"g values.yaml'
+    - git status
+    - git add . 
+    - git commit -am "Update to version ${image_id}-branch comment ${CI_COMMIT_MESSAGE}"
+    - git push "https://${USERNAME_GIT}:${PASSWORD_GIT}@${url_helmchart#*@}" HEAD:branch
+  tags:
+    - deploy
+  only:
+    refs:
+      - branch
+    variables:
+          - $CI_COMMIT_MESSAGE =~ /(deploy|all).*/ 
